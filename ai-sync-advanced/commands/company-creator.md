@@ -1,3 +1,8 @@
+---
+name: company-creator
+description: Design an agentic workforce structure for solo founders - divisions, org charts, tools, and rollout plans
+---
+
 I'm a solo founder. I want to build an agentic workforce that operates like a 100+ person company.
 
 Help me design this from scratch:

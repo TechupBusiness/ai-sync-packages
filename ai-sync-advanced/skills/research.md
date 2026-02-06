@@ -1,9 +1,12 @@
 ---
 name: research
 description: Conduct research with up-to-date information via aichat CLI. Use when you need current information, real-time data, or need to research topics beyond your knowledge cutoff.
-version: 1.1.0
-compatibility: Requires aichat CLI with OpenRouter API key configured
-allowed-tools: Bash
+allowed-tools: Bash(aichat:*)
+triggers:
+  - "research"
+  - "web search"
+  - "look up"
+  - "find out"
 ---
 
 # AI Research Skill
@@ -18,108 +21,55 @@ This skill should be used when:
 - Verifying facts or getting up-to-date data
 - User explicitly asks for web research
 
-## Research Commands
+## Available Models
 
-The following wrapper scripts provide short aliases for aichat models. Users can customize these by creating their own scripts in `~/.local/bin/`.
-
-| Command | Default Model | Speed | Use For |
-|---------|---------------|-------|---------|
-| `research-grok-fast` | Grok 4.1 Fast | 4-6s | Quick answers, iteration |
-| `research-grok` | Grok 4 | 10-15s | Code questions, reasoning |
-| `research-perplexity` | Perplexity Deep | 20-40s | Web search, docs, citations |
-| `research-claude` | Claude Sonnet 4.5 | 10-20s | Deep analysis, complex problems |
+| Model | Speed | Use For |
+|-------|-------|---------|
+| `openrouter:x-ai/grok-4.1-fast` | 4-6s | Quick answers, iteration |
+| `openrouter:x-ai/grok-4` | 10-15s | Code questions, reasoning |
+| `openrouter:perplexity/sonar-pro` | 5-10s | Fast web search, citations |
+| `openrouter:perplexity/sonar-reasoning-pro` | 15-30s | Multi-step reasoning + search |
+| `openrouter:perplexity/sonar-deep-research` | 30-60s | Comprehensive research reports |
 
 ### Model Selection Guide
 
-| Query Type | Recommended Command |
-|------------|---------------------|
-| Quick factual questions | `research-grok-fast` |
-| Code questions, debugging | `research-grok` or `research-grok-fast` |
-| Web search, current events | `research-perplexity` |
-| API docs, library features | `research-perplexity` |
-| Deep analysis, architecture | `research-claude` |
-| Complex problem solving | `research-claude` |
+| Query Type | Recommended Model |
+|------------|-------------------|
+| Quick factual questions | `x-ai/grok-4.1-fast` |
+| Code questions, debugging | `x-ai/grok-4` |
+| Web search, current events | `perplexity/sonar-pro` |
+| API docs, library features | `perplexity/sonar-pro` |
+| Multi-step reasoning problems | `perplexity/sonar-reasoning-pro` |
+| Comprehensive research reports | `perplexity/sonar-deep-research` |
 
-## Setup (First-Time Only)
+## Error Handling
 
-### 1. Create Wrapper Scripts
+If `aichat` command is not found:
+- Tell the user to install aichat from https://github.com/sigoden/aichat
+- Use OpenRouter (https://openrouter.ai) for access to web search models like Perplexity and Grok
 
-Create these scripts in `~/.local/bin/` (ensure this directory is in your PATH):
+If API/authentication errors occur:
+- Ask user to verify their OpenRouter API key in `~/.config/aichat/config.yaml`
+- Check they have credits at https://openrouter.ai
 
-```bash
-# Create directory if needed
-mkdir -p ~/.local/bin
-
-# research-grok-fast
-cat > ~/.local/bin/research-grok-fast << 'EOF'
-#!/bin/bash
-exec aichat -m openrouter:x-ai/grok-4.1-fast "$@"
-EOF
-
-# research-grok
-cat > ~/.local/bin/research-grok << 'EOF'
-#!/bin/bash
-exec aichat -m openrouter:x-ai/grok-4 "$@"
-EOF
-
-# research-perplexity
-cat > ~/.local/bin/research-perplexity << 'EOF'
-#!/bin/bash
-exec aichat -m openrouter:perplexity/sonar-deep-research "$@"
-EOF
-
-# research-claude
-cat > ~/.local/bin/research-claude << 'EOF'
-#!/bin/bash
-exec aichat -m openrouter:anthropic/claude-sonnet-4.5 "$@"
-EOF
-
-# Make executable
-chmod +x ~/.local/bin/research-*
-```
-
-### 2. Install aichat (if not installed)
+If models are not found or OpenRouter is not configured:
+- Ask the user to set up OpenRouter models in aichat
+- They need an OpenRouter API key from https://openrouter.ai/keys
+- Run these commands to add the research models:
 
 ```bash
-# Check if aichat is available
-which aichat || command -v aichat
+# Add OpenRouter client with API key
+aichat --set-client openrouter api_key=YOUR_OPENROUTER_API_KEY
 
-# macOS (Homebrew)
-brew install aichat
-
-# Linux (Cargo)
-cargo install aichat
-
-# Or download binary from: https://github.com/sigoden/aichat/releases
+# Add research models
+aichat --set-model openrouter:x-ai/grok-4.1-fast
+aichat --set-model openrouter:x-ai/grok-4
+aichat --set-model openrouter:perplexity/sonar-pro
+aichat --set-model openrouter:perplexity/sonar-reasoning-pro
+aichat --set-model openrouter:perplexity/sonar-deep-research
 ```
 
-### 3. Configure OpenRouter
-
-Get an API key from [openrouter.ai](https://openrouter.ai/keys), then configure:
-
-```bash
-mkdir -p ~/.config/aichat
-
-cat > ~/.config/aichat/config.yaml << 'EOF'
-model: openrouter:x-ai/grok-4.1-fast
-clients:
-  - type: openai-compatible
-    name: openrouter
-    api_base: https://openrouter.ai/api/v1
-    api_key: YOUR_OPENROUTER_API_KEY
-    models:
-      - name: x-ai/grok-4.1-fast
-      - name: x-ai/grok-4
-      - name: perplexity/sonar-deep-research
-      - name: anthropic/claude-sonnet-4.5
-EOF
-```
-
-### 4. Verify Setup
-
-```bash
-research-grok-fast "What is 2+2?"
-```
+- After setup, verify with: `aichat --list-models | grep openrouter`
 
 ---
 
@@ -128,59 +78,46 @@ research-grok-fast "What is 2+2?"
 ### Quick Research (4-6 sec)
 
 ```bash
-research-grok-fast "your research question"
+aichat -m openrouter:x-ai/grok-4.1-fast "your research question"
 ```
 
-### Deep Web Research (20-40 sec)
+### Web Search (5-10 sec)
 
 ```bash
-research-perplexity "your research question"
+aichat -m openrouter:perplexity/sonar-pro "your research question"
+```
+
+### Multi-Step Reasoning (15-30 sec)
+
+```bash
+aichat -m openrouter:perplexity/sonar-reasoning-pro "explain the tradeoffs between X and Y"
+```
+
+### Deep Research Report (30-60 sec)
+
+```bash
+aichat -m openrouter:perplexity/sonar-deep-research "comprehensive analysis of [topic]"
 ```
 
 ### Code/Reasoning Questions
 
 ```bash
-research-grok "how does React 19 handle concurrent rendering?"
-```
-
-### Complex Analysis
-
-```bash
-research-claude "compare microservices vs monolith architecture for this use case"
-```
-
-### Parallel Research (Recommended)
-
-Run multiple models in parallel for comprehensive results:
-
-```bash
-research-grok-fast "What are the latest React 19 features?" &
-research-perplexity "What are the latest React 19 features?" &
-wait
+aichat -m openrouter:x-ai/grok-4 "how does React 19 handle concurrent rendering?"
 ```
 
 ### Save Output
 
 ```bash
-research-perplexity "Research topic" > research.md
+aichat -m openrouter:perplexity/sonar-deep-research "Research topic" > research.md
 ```
 
 ## Best Practices
 
-- **Quick iteration**: Use `research-grok-fast` for rapid feedback loops
-- **Documentation lookup**: Use `research-perplexity` - it has web search + citations
-- **Code problems**: Use `research-grok` or `research-grok-fast` for code-related questions
-- **Architecture decisions**: Use `research-claude` for nuanced analysis
+- **Quick iteration**: Use `grok-4.1-fast` for rapid feedback loops
+- **Documentation lookup**: Use `perplexity/sonar-pro` - fast web search + citations
+- **Code problems**: Use `grok-4` or `grok-4.1-fast` for code-related questions
+- **Complex reasoning**: Use `perplexity/sonar-reasoning-pro` for multi-step problems
+- **Comprehensive reports**: Use `perplexity/sonar-deep-research` for thorough research with many sources
 - Include "provide sources" in your query for citations
 - Be specific in your questions for better results
 - For API documentation, ask for "official documentation" or "latest version"
-
-## Customization
-
-To use different models, edit the wrapper scripts in `~/.local/bin/`. For example, to use a different provider:
-
-```bash
-# Edit ~/.local/bin/research-grok-fast
-#!/bin/bash
-exec aichat -m your-provider:your-model "$@"
-```

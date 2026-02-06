@@ -1,88 +1,41 @@
-# ai-sync-packages
+# Claude Code Context - ai-sync-packages
 
-Curated collection of ai-sync content packages for use across projects.
+## nested-repos
 
-## Packages
+> Nested git repositories that require separate commits
 
-| Package | Description |
-|---------|-------------|
-| `ai-sync-defaults/` | Core agents, rules, skills, and commands for general use |
-| `ai-sync-advanced/` | Advanced commands, workflows, and specialized skills |
-| `ai-sync-aiflow-tasks/` | Task planning and project management commands |
-| `ai-sync-flutter/` | Flutter/Dart development content |
-| `ai-sync-nodejs/` | Node.js development content |
+# Nested Git Repository
 
-## Usage
+## Important: Separate Commit Required
 
-### Remote (from GitHub)
+The `ai-sync-packages/` directory is a **single git repository** independent of the main project.
 
-Load packages via git loader with subpaths:
+## Commit Workflow
 
-```yaml
-# .ai-sync/config.yaml
-loaders:
-  # Load entire defaults package
-  - type: git
-    source: github:TechupBusiness/ai-sync-packages/ai-sync-defaults
-    
-  # Load from advanced with full filtering options
-  - type: git
-    source: github:TechupBusiness/ai-sync-packages/ai-sync-advanced
-    use:
-      skills: [research]           # Only specific skills by name
-      commands: [commit, self-review]  # Only specific commands
-      rules: '*'                   # All rules
-      agents: []                   # No agents from this loader
-      workflows: '*'               # All workflows
+When modifying files in this directory:
+
+1. **Commit to the nested repo:**
+   ```bash
+   cd ai-sync-packages
+   git add .
+   git commit -m "feat(agents): update agent descriptions"
+   git push
+   ```
+
+2. **Then update the reference in the main repo** (if using submodule references)
+
+## Why This Matters
+
+- Changes in this repo are **not tracked** by the parent git repository
+- `git status` in the root will NOT show changes in this folder
+- You must `cd` into `ai-sync-packages/` to see/commit changes
+
+## Checking for Changes
+
+```bash
+# Check nested repo status
+cd ai-sync-packages && git status
+
+# Or from root
+git -C ai-sync-packages status
 ```
-
-### Local Development
-
-For local development or testing changes before pushing:
-
-```yaml
-# .ai-sync/config.yaml
-loaders:
-  # Point to local clone of this repo
-  - type: local
-    source: ../ai-sync-packages/ai-sync-defaults
-    
-  # Load multiple packages with selective filtering
-  - type: local
-    source: ../ai-sync-packages/ai-sync-advanced
-    use:
-      skills: '*'                  # All skills
-      commands: [commit]           # Just the commit command
-      rules: []                    # No rules
-      
-  # Temporarily disable a package
-  - type: local
-    source: ../ai-sync-packages/ai-sync-flutter
-    enabled: false
-```
-
-### Filter Syntax Reference
-
-| Config | Meaning |
-|--------|---------|
-| `'*'` | Include all items of that type |
-| `['name1', 'name2']` | Include only items with these exact names |
-| `[]` | Exclude all items of that type |
-| *(omitted)* | Defaults to include all (same as `'*'`) |
-
-## Structure
-
-Each package follows the standard ai-sync directory structure:
-
-```
-package-name/
-├── agents/      # Agent definitions
-├── commands/    # Slash commands
-├── rules/       # Always-on or glob-matched rules
-├── skills/      # On-demand capabilities
-└── workflows/   # Multi-step workflows
-```
-
-## License
-
-MIT

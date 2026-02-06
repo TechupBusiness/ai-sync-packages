@@ -1,6 +1,6 @@
 ---
 name: technical-writer
-description: Use for documentation: READMEs, API docs, user guides, changelogs, and migration guides. Writes markdown and documentation files.
+description: "Use for documentation: READMEs, API docs, user guides, changelogs, and migration guides. Writes markdown and documentation files."
 version: 2.0.0
 tools:
   - read
