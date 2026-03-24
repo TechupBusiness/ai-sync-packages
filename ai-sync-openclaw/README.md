@@ -1,0 +1,4 @@
+- https://x.com/rryssf_/status/2016900174769963042  openclaw alone is a demo. this is the full product.
+- https://x.com/Hesamation/status/2017038553058857413 everyone talks about Clawdbot, but here's how it works
+- https://github.com/levineam/qmd-skill
+- 

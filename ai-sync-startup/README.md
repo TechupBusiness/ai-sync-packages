@@ -1,0 +1,2 @@
+- https://x.com/paoloanzn/status/2011240960030626151 - how to make $1M in 2026 with ai
+- 
