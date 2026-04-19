@@ -811,7 +811,8 @@ overrides:
 
 Rules:
 - Each path uses **exactly one** of `delete` / `content` / `append` / `modifications`.
-- `append` and `modifications` are `.md`-only and require the path to exist in the source bundle.
+- `append` is `.md`-only (line-level append); it requires the path to exist in the source bundle.
+- `modifications` mixes by type: section modifications (`type: section` or omitted) are `.md`-only because they anchor on ATX headings; `type: regex` and `type: script` modifications work on **any text file** (JSON/YAML/scripts/dotfiles) and are the recommended way to patch non-markdown aux files. On a non-`.md` path, section entries in the list are skipped with a warning and regex/script entries pass through.
 - `content` can replace an existing file or add a new one (any file type).
 - The special path `SKILL.md` is rejected — use top-level `modifications:` instead.
 - Keys must be relative paths inside the skill dir; `..` and absolute paths are rejected.
