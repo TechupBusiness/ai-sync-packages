@@ -533,6 +533,16 @@ loaders:
 
 ### Modification Positions
 
+Each entry in `modifications:` is one of three types, selected via the optional `type` field:
+
+| `type` | Purpose |
+|--------|---------|
+| `section` (default, may be omitted) | Heading-anchored edits on markdown — the `position` + `section` pair below |
+| `regex` | Pattern-based insert/replace/delete — see [Regex Modifications](#regex-modifications) |
+| `script` | Pipe content through a user command — see [Script Modifications](#script-modifications) |
+
+The `position`-based shape below is what you get when `type` is omitted (or `type: section`):
+
 | Position | Without `section` | With `section` |
 |----------|-------------------|----------------|
 | `replace` | Replaces entire body (keeps frontmatter) | Replaces content between heading and next same-level heading |
@@ -568,6 +578,7 @@ overrides:
 Notes:
 - Whole-item delete short-circuits any other modifications on the same item.
 - Delete ignores `content:` if present (warns).
+- A whole-body replace (`position: replace` with no `section:`) wipes the current content and substitutes its own. Modifications listed **before** it are redundant and skipped (with a warning); modifications listed **after** it run on the replaced content — useful for "replace the whole file, then patch a few lines via regex".
 - To hide items without loading them in the first place, prefer the loader's `use:` filter.
 
 ### Creating Missing Sections
@@ -586,6 +597,108 @@ modifications:
 - Valid only with `position: end` or `position: beginning`.
 - Heading level is derived from leading `#` chars in `section` (default `##` if none).
 - Makes the new section a first-class target for later layers to extend.
+
+### Regex Modifications
+
+Use `type: regex` to edit content by pattern instead of by markdown heading. This covers non-markdown files (JSON/YAML/scripts/dotfiles) and markdown edits anchored on non-heading lines.
+
+```yaml
+modifications:
+  - type: regex
+    pattern: '"version"\s*:\s*"[^"]*"'
+    replace: '"version": "{{company_version}}"'
+    all: false           # default — replace first match only
+    required: true       # default — warn/error if 0 matches
+  - type: regex
+    pattern: '^## Checklist$'
+    flags: m
+    insert_after: |
+
+      - New team-specific check
+    all: false
+```
+
+Supported operations (pick exactly one):
+
+| Field | Effect |
+|-------|--------|
+| `replace: "..."` | Replace each match with the string. Supports JS backrefs (`$1`, `$2`, `$&`). |
+| `insert_before: ...` | Insert content immediately before each match. Accepts `string` \| `{ file: ... }` \| `{ bash: ... }`. |
+| `insert_after: ...` | Insert content immediately after each match. Same source forms as above. |
+| `delete: true` | Remove each match (equivalent to `replace: ""`). |
+
+Other fields:
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `pattern` | string | required | JS regex source (no surrounding `/.../`). |
+| `flags` | string | `""` | Subset of `gmisuy`. `g` is managed automatically via `all`. |
+| `all` | boolean | `false` | `true` → replace every match; `false` → first match only. |
+| `required` | boolean | `true` | If `true`, zero matches warns (or aborts under `strict`). |
+| `strict` | boolean | `false` | Escalate failures to build errors — see [Strict Mode](#strict-mode). |
+
+Notes:
+- Backrefs use JavaScript syntax (`$1`, `$2`, `$&`), **not** sed's `\1`.
+- Invalid regex patterns or flag strings produce a warning (or fatal under strict).
+- `insert_before` / `insert_after` values support the same `{ file: ... }` / `{ bash: ... }` forms as `content:` (see [Content Sources](#content-sources)).
+
+### Script Modifications
+
+Use `type: script` to pipe the current file content through an external command. The command receives the file on stdin; its stdout becomes the new content.
+
+```yaml
+modifications:
+  - type: script
+    command: "jq '.devDependencies |= del(.\"@types/removed\")'"
+    timeout: 10000           # ms, default 10000
+    max_output_bytes: 10485760  # default 10 MB
+```
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `command` | string | required | Any shell command. Stdin = current content, stdout = new content. |
+| `timeout` | number | `10000` | Milliseconds. On timeout, the process group is killed. |
+| `max_output_bytes` | number | `10485760` (10 MB) | Stdout cap; exceeding it fails the modification. |
+| `strict` | boolean | `false` | Escalate failures to build errors — see [Strict Mode](#strict-mode). |
+
+Environment variables exposed to the script:
+
+| Variable | Value |
+|----------|-------|
+| `AI_SYNC_TARGET_ID` | Stable logical id — `${contentType}/${itemName}` (e.g. `skills/pdf`) for loader-level modifications, or `skill-aux:${skillName}/${path}` (e.g. `skill-aux:pdf/scripts/extract.py`) for aux-file modifications. **Not** a filesystem path. |
+| `AI_SYNC_CONFIG_DIR` | Absolute path to the config directory (the one holding `config.yaml`). Use it to resolve patch files. |
+
+Trust-boundary warning:
+- `type: script` runs arbitrary shell from your YAML — the same risk surface as a `{ bash: "..." }` content source. Review loader sources (and wrapper packages) before enabling.
+- Non-zero exit code always fails the modification (regardless of `strict`). The `strict` flag controls whether a failure warns or aborts the whole build.
+- stderr is surfaced as a warning, prefixed with the modification's logical id.
+- `ai-sync build --dry-run` (user-level) skips script execution; regular builds always execute it.
+
+### Strict Mode
+
+Every modification (all three types) accepts an optional `strict` flag:
+
+```yaml
+modifications:
+  - type: regex
+    pattern: '"version"\s*:\s*"[^"]*"'
+    replace: '"version": "1.2.3"'
+    strict: true        # abort the build if this mod cannot apply
+```
+
+Behavior:
+
+| `strict` | Failure handling |
+|----------|------------------|
+| `false` (default) | Log a warning and skip the modification. The build continues and other items still generate. |
+| `true` | Collect the failure as a **fatal** error. The build runs to completion, then `ai-sync build` exits non-zero. |
+
+What counts as a failure:
+- `type: section`: section not found (without `create_if_missing`), attempting to create with an unsupported position, etc.
+- `type: regex`: invalid pattern/flags, or zero matches when `required: true`.
+- `type: script`: non-zero exit, timeout, stdout exceeds `max_output_bytes`.
+
+Use `strict: true` for CI builds where silent skips would hide drift (e.g. a version-bump regex must match exactly once; a `jq` patch must succeed). Leave the default `false` when the modification is a "best-effort" tweak.
 
 ### Content Sources
 
@@ -667,6 +780,15 @@ overrides:
               section: "## New Section"
               create_if_missing: true
               content: "..."
+            # Regex / script modifications also apply to aux-file `.md` paths
+            - type: regex
+              pattern: '\bupstream-name\b'
+              replace: "Acme"
+              all: true
+              strict: true
+            - type: script
+              command: "sed 's/TODO/DONE/g'"
+              timeout: 5000
 
         # Add a brand-new file not in the upstream bundle
         "scripts/post-process.sh":
@@ -746,6 +868,9 @@ Behavior:
 | Append / prepend (no section) | ✅ | ✅ | ✅ | ✅ | ✅ (via `files.append`) | ❌ | ❌ | ❌ | ❌ |
 | Section replace / append / beginning | ✅ | ✅ | ✅ | ✅ | ✅ (via `files.modifications`) | ❌ | ❌ | ❌ | ❌ |
 | Section delete | ✅ | ✅ | ✅ | ✅ | ✅ (via `files.modifications`) | ❌ | ❌ | ❌ | ❌ |
+| Regex modification (`type: regex`) | ✅ | ✅ | ✅ | ✅ | ✅ (via `files.modifications`) | ❌ | ❌ | ❌ | ❌ |
+| Script modification (`type: script`) | ✅ | ✅ | ✅ | ✅ | ✅ (via `files.modifications`) | ❌ | ❌ | ❌ | ❌ |
+| `strict: true` (abort on failure) | ✅ | ✅ | ✅ | ✅ | ✅ (via `files.modifications`) | ❌ | ❌ | ❌ | ❌ |
 | Whole-item / file delete | ✅ | ✅ | ✅ | ✅ | ✅ (via `files.delete`) | ✅ (via `files.delete`) | ❌ | ❌ | ❌ |
 | Add new file | ❌ | ❌ | ❌ | ❌ | ✅ (via `files.content`) | ✅ (via `files.content`) | ❌ | ❌ | ❌ |
 | `create_if_missing` for sections | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
