@@ -770,7 +770,10 @@ overrides:
             ## Team Notes
             Apply the Acme template.
 
-        # Section-level modifications (.md only) — reuses the same modification syntax
+        # Modifications on an aux file. Section mods (`type: section` /
+        # omitted) require a `.md` file because they anchor on ATX headings.
+        # Regex and script mods work on any text file (JSON/YAML/scripts/
+        # dotfiles), so they're accepted on non-`.md` paths too.
         "references/guide.md":
           modifications:
             - position: replace
@@ -780,7 +783,7 @@ overrides:
               section: "## New Section"
               create_if_missing: true
               content: "..."
-            # Regex / script modifications also apply to aux-file `.md` paths
+            # Regex / script modifications on `.md` aux files
             - type: regex
               pattern: '\bupstream-name\b'
               replace: "Acme"
@@ -789,6 +792,17 @@ overrides:
             - type: script
               command: "sed 's/TODO/DONE/g'"
               timeout: 5000
+
+        # Non-markdown aux file: regex / script mods work, section mods do not.
+        "scripts/extract.py":
+          modifications:
+            - type: regex
+              pattern: '^DEBUG\s*=\s*True$'
+              flags: m
+              replace: 'DEBUG = False'
+            - type: script
+              command: "black -q -"
+              timeout: 10000
 
         # Add a brand-new file not in the upstream bundle
         "scripts/post-process.sh":
