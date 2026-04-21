@@ -898,7 +898,7 @@ Behavior:
 
 - **Variables inside skill aux `.md` files**: `{{var}}` substitution currently runs only against the primary content (`SKILL.md`, rule, agent, command body), not against aux-file content. Embed substitutions in the override's `content` / `append` payload instead.
 - **Workflows**: no override support. The loader passes workflows through unchanged.
-- **MCP servers**: no per-server override in loader config. Merge happens via `mcp/servers.yaml`; last loader wins.
+- **MCP servers**: no per-server override in loader config. Loaders can supply MCP via `mcp/servers.yaml` (unified format) or a plugin bundle's `.mcp.json` (Claude plugin format) — both flow through `result.mcpServers`. When two sources declare a server with the same name, **project MCP** (from your `.ai-sync/mcp.yaml` / `mcp/*.json`) wins over loader-supplied MCP. Within the loader layer itself, last-loaded wins. There's no deep-merge yet (e.g. a project can't add `env:` attrs to a loader-declared server without replacing it whole — tracked as future `mcp_overrides:` feature).
 - **Overlays**: not a parsed content type — only deployment strategy (`copy` / `merge_overlay_wins` / `merge_generator_wins` / `symlink` / `symlink_merge` / `keep`) is configurable.
 - **Cross-loader dedup**: if two loaders produce content with the same name, the later loader wins. ai-sync now logs a warning naming both sources; use `namespace:` on the loader (see "Loading Claude Plugins") to prevent collisions.
 - **Aux file glob patterns**: `files:` keys must be literal relative paths — no `scripts/**/*.py` mass operations.
@@ -943,6 +943,7 @@ The `subdir:` field also works for `type: npm`. For `type: local`, just point `s
 - **Agents** — every `.md` file under `agents/`.
 - **Commands** — every `.md` file under `commands/`, including nested dirs.
 - **Hooks** — `hooks/hooks.json` and `codex/hooks.json` are deployed as overlays merged into `.claude/settings.json` and `.codex/settings.json` respectively. The `hooks-wrapper` transform handles both shapes: already-wrapped (`{hooks: {...}}`) and bare event keys at the root. No configuration required.
+- **MCP servers** — a bundle's `.mcp.json` (or `mcp.json`, or a manifest-declared path via `plugin.json#mcpServers`) is ingested into the structured MCP pipeline. `${CLAUDE_PLUGIN_ROOT}` substitution and environment variable interpolation are applied. Servers flow to each enabled target's generator and are written to that target's native path (e.g. `.mcp.json` at the project root for Claude Code).
 - **Plugin metadata** — the `name`, `version`, and `description` from `.claude-plugin/plugin.json` are recorded on the load result for logs and conflict warnings.
 
 Non-content directories like `docs/`, `scripts/`, and the plugin's own same-name dir (e.g. `flow-next/`) are ignored.
