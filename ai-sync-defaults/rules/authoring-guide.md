@@ -813,7 +813,7 @@ Variable values themselves also accept `{ file: ... }` and `{ bash: ... }`.
 
 Set any supported frontmatter field under `overrides.<type>.<name>`: `description`, `targets`, `priority`, `category`, `globs`, etc. For rules and skills, several fields (`description`, `targets`, `globs`, `priority`, `category`, `compatibility`) also accept `{ file: ... }` / `{ bash: ... }`.
 
-> **`always_apply` overrides are deprecated** (`AISYNC_DEP_001`, removed in ai-sync v2.0). Setting `always_apply` from a loader override still works but emits the deprecation warning naming the affected rule. Migration: drop the override line; if you need the upstream rule to apply always, also drop any inherited `globs` (e.g. via `delete:` semantics in your override). For scoped attachment, just set `globs:` directly.
+> **`always_apply` overrides are deprecated** (`AISYNC_DEP_001`, removed in ai-sync v2.0). Setting `always_apply` from a loader override still works but emits the deprecation warning naming the affected rule. Migration: drop the override line. If you need the upstream rule to apply always, the canonical fix is at the source (the rule should be authored without `globs`). There is no field-deletion override that lets a consumer drop an inherited `globs` value purely from `config.yaml` — if the upstream rule is scoped and you need it to apply always in your project, fork it into `.ai-sync/rules/`. For scoped attachment, just set `globs:` directly.
 
 ### Agent-Specific Overrides
 
