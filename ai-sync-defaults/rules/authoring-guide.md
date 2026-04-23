@@ -52,12 +52,17 @@ Rules provide guidelines, skills, and context that AI assistants reference when 
 | `name` | string | Yes | - | Unique identifier (becomes slug) |
 | `description` | string | No | - | Human-readable description |
 | `version` | string | No | - | Semver version (e.g., `1.0.0`) |
-| `always_apply` | boolean | No | `false` | Always load regardless of context |
-| `globs` | string[] | No | - | File patterns to trigger this rule |
+| `globs` | string[] | No | - | File patterns to trigger this rule. **Omit entirely** to mean "apply always" — the rule inlines into root entry-points (`CLAUDE.md` / `AGENTS.md`). `globs: []` (explicit empty) is rejected as ambiguous. |
+| `always_apply` | boolean | No | - | **DEPRECATED** (`AISYNC_DEP_001`, removed in ai-sync v2.0). Build emits a one-shot deprecation warning per process listing every affected rule. Migration: drop the line — with no `globs`, the rule already applies always. |
 | `targets` | string[] | No | `[cursor, claude, factory]` | Platforms to generate for |
 | `requires` | string[] | No | - | Dependent rules to load together |
 | `category` | string | No | - | Organization category |
 | `priority` | string | No | `medium` | Priority level (`low`, `medium`, `high`) |
+
+> **Apply-always semantics** (since ai-sync fn-2): a rule that **omits both** `always_apply` and `globs` is treated as **always-apply**. This is the canonical shape going forward; the legacy `always_apply: true` form is soft-deprecated. The structurally-bad cases are now parse-time errors:
+>
+> - `globs: []` → omit `globs` (apply always) or list at least one pattern.
+> - `always_apply: false` with no `globs` → remove the rule, or add `globs`.
 
 ### Rule Categories
 
@@ -72,11 +77,11 @@ Rules provide guidelines, skills, and context that AI assistants reference when 
 ### Rule Example
 
 ```yaml
+# Scoped rule: globs trigger attachment
 ---
 name: database
 description: Database schema and query patterns
 version: 1.0.0
-always_apply: false
 globs:
   - "**/*.sql"
   - "**/migrations/**"
@@ -92,6 +97,24 @@ priority: high
 # Database Guidelines
 
 [Rule content here...]
+```
+
+```yaml
+# Apply-always rule: omit globs (the new canonical shape)
+---
+name: project
+description: Always-on project context
+version: 1.0.0
+targets:
+  - cursor
+  - claude
+  - factory
+priority: high
+---
+
+# Project
+
+[Always-on context that inlines into CLAUDE.md / AGENTS.md...]
 ```
 
 ## Creating Personas
@@ -302,7 +325,6 @@ Override generic settings for specific platforms using extension objects:
 name: my-rule
 description: Rule with platform overrides
 version: 1.0.0
-always_apply: false
 globs:
   - "**/*.ts"
 targets:
@@ -324,7 +346,7 @@ factory:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `alwaysApply` | boolean | Override always_apply (camelCase) |
+| `alwaysApply` | boolean | Cursor's native field (camelCase). Maps to the generic `always_apply` field. Setting either triggers the `AISYNC_DEP_001` deprecation warning — prefer omitting both and letting "missing globs = apply always" carry the semantics. |
 | `globs` | string[] | Override glob patterns |
 | `description` | string | Override description |
 | `allowedTools` | string[] | Tool restrictions for commands |
@@ -429,19 +451,19 @@ Review output for warnings about:
 
 ## Collision and Overwrite Guidance
 
-### File Collisions
+### Same-name content collisions (rules / agents / commands / skills)
 
 Files with matching names will collide during sync:
 - Project files in `.ai-sync/` override defaults
 - Use `overrides/` folder to customize default content
 
-### Avoiding Conflicts
+#### Avoiding Conflicts
 
 1. Check existing files: `ai-sync status`
 2. Use unique names for project-specific content
 3. Override defaults explicitly in `overrides/` folder
 
-### Force Overwrite
+#### Force Overwrite
 
 When intentionally replacing files:
 
@@ -456,13 +478,80 @@ output:
   overwrite: true
 ```
 
+### Overlay destination collisions (loader vs loader)
+
+When **two loaders ship overlays that resolve to the same destination path** — e.g. both ship `.husky/pre-commit` — `ai-sync build` **fails the build** with a deterministic error:
+
+```
+Overlay error: Collision: ".husky/pre-commit" deployed by:
+  - ai-sync-defaults (.../ai-sync-packages/ai-sync-defaults/overlays/.husky/pre-commit)
+  - my-flutter-pack (.../ai-sync-packages/my-flutter-pack/overlays/.husky/pre-commit)
+
+Use `remap_to` (with `source_match` to scope) to send one of them
+elsewhere. ai-sync does not silently pick a winner.
+```
+
+The build exits non-zero. Sources in the message are sorted by `(destPath, friendlyLoaderName)` so the output is byte-stable. **Identical content does not short-circuit the check** — even if both files are byte-identical, the build still fails. This is by design: silent overwrites hide intent.
+
+#### Resolving with `source_match` + `remap_to`
+
+The consumer adds an overlay rule scoped to a single loader (via `source_match`) that rewrites the destination (via `remap_to`):
+
+```yaml
+# Project config.yaml — both loaders ship .husky/pre-commit
+loaders:
+  - type: local
+    source: ai-sync-packages/ai-sync-defaults
+  - type: local
+    source: ai-sync-packages/my-flutter-pack
+
+overlays:
+  rules:
+    # Scope a remap to one loader; the other keeps the default destination.
+    - pattern: ".husky/pre-commit"
+      source_match: "**/my-flutter-pack/**"
+      remap_to: ".husky/pre-commit-flutter"
+      executable: true
+```
+
+After `ai-sync build`:
+
+```
+.husky/pre-commit            # from ai-sync-defaults
+.husky/pre-commit-flutter    # from my-flutter-pack (executable)
+```
+
+You can also remap both side-by-side if neither loader's "default" location should win:
+
+```yaml
+overlays:
+  rules:
+    - pattern: ".husky/pre-commit"
+      source_match: "**/ai-sync-defaults/**"
+      remap_to: ".husky/pre-commit-defaults"
+      executable: true
+    - pattern: ".husky/pre-commit"
+      source_match: "**/my-flutter-pack/**"
+      remap_to: ".husky/pre-commit-flutter"
+      executable: true
+```
+
+### Project overlay vs loader overlay (silent project win)
+
+A project overlay in `.ai-sync/overlays/<path>` at the same destination as a loader overlay is **not** a collision — the project overlay wins, and the loader overlay is silently dropped (debug-logged). This is the intended override pattern: consumers shadow loader files by placing their own at the same path.
+
+If you want a loud signal when a loader adds a new overlay you weren't aware of, use `source_match` + `remap_to` to send the loader overlay to a sibling path explicitly, instead of relying on the silent project-side win.
+
 ## Common Pitfalls
 
 ### Frontmatter Mistakes
 
 | Mistake | Correct |
 |---------|---------|
-| `alwaysApply: true` | `always_apply: true` (snake_case in generic) |
+| Using `always_apply: true` (deprecated) | Omit both `always_apply` and `globs` — that's the new "apply always" shape (`AISYNC_DEP_001`, removed in ai-sync v2.0). |
+| `globs: []` (explicit empty array) | Either omit `globs` (apply always) or list at least one pattern (scoped). Empty arrays are now a parse-time validation error. |
+| `always_apply: false` with no `globs` | Remove the rule (it would never apply) or add `globs`. Now a parse-time validation error. |
+| `alwaysApply: true` | If you really need the legacy form, write `always_apply: true` (snake_case) — but prefer the omit-`globs` shape. |
 | `toolMatch: "..."` | `tool_match: "..."` (snake_case) |
 | Missing `name` field | Always include `name` |
 | Invalid `version` format | Use semver: `1.0.0` |
@@ -722,7 +811,9 @@ Variable values themselves also accept `{ file: ... }` and `{ bash: ... }`.
 
 ### Frontmatter Overrides
 
-Set any supported frontmatter field under `overrides.<type>.<name>`: `description`, `targets`, `priority`, `category`, `always_apply`, `globs`, etc. For rules and skills, several fields (`description`, `targets`, `globs`, `priority`, `category`, `compatibility`) also accept `{ file: ... }` / `{ bash: ... }`.
+Set any supported frontmatter field under `overrides.<type>.<name>`: `description`, `targets`, `priority`, `category`, `globs`, etc. For rules and skills, several fields (`description`, `targets`, `globs`, `priority`, `category`, `compatibility`) also accept `{ file: ... }` / `{ bash: ... }`.
+
+> **`always_apply` overrides are deprecated** (`AISYNC_DEP_001`, removed in ai-sync v2.0). Setting `always_apply` from a loader override still works but emits the deprecation warning naming the affected rule. Migration: drop the override line; if you need the upstream rule to apply always, also drop any inherited `globs` (e.g. via `delete:` semantics in your override). For scoped attachment, just set `globs:` directly.
 
 ### Agent-Specific Overrides
 
@@ -995,6 +1086,169 @@ loaders:
 - Plugin-sourced hooks from multiple plugins may overlap on the same event key (`PreToolUse`, etc.). Later loaders win; ai-sync logs the overlay conflict.
 - `anthropics/skills` and similar Claude-skills collections that are **not** packaged as plugins (no `.claude-plugin/plugin.json`) should use `source_format: unified` or `source_format: claude` instead of `claude-plugin`. Use `namespace:` if you still want prefixing.
 - Plugin commands that resolve external paths via `${CLAUDE_PLUGIN_ROOT}` need those paths re-evaluated in the project. Override the relevant command body or aux files if the default paths don't exist.
+
+## Loader-Shipped Overlays
+
+Loaders aren't limited to shipping parsed content (rules, agents, commands, skills). A loader package can also ship **overlay files** — arbitrary files that get deployed to the consumer's project tree at build time. Hook scripts (`.husky/pre-commit`), editor configs (`.editorconfig`, `.prettierrc`), CI workflows (`.github/workflows/*.yml`), and any other project-root artifacts are all candidates.
+
+This makes a loader package a single source of truth for *all* repository state, not just AI-tool config.
+
+### How a loader ships an overlay
+
+Place files under the package's `overlays/` directory. The path inside `overlays/` mirrors the consumer project root:
+
+```
+my-pack/
+├── loaders.yaml       (optional, for transitive deps)
+└── overlays/
+    └── .husky/
+        └── pre-commit         # → consumer's .husky/pre-commit
+```
+
+When a consumer loads `my-pack`, ai-sync discovers the overlay during `applyOverlays`. By default it's copied to the mirrored destination using the consumer's `overlays.default_strategy` (default: `copy`).
+
+### Consumer-side controls (the four new `OverlayRule` fields)
+
+The consumer scopes loader overlays from their own `config.yaml` using the four fields documented in `docs/configuration.md` → "Overlays System". Worked examples for each:
+
+#### `executable: true` — `chmod 0o755` after deploy
+
+Use for hook scripts and helper binaries. The bit is set after byte-writing strategies (`copy`, `merge_overlay_wins`, `merge_generator_wins`); a no-op (debug log) for `symlink` / `symlink_merge` / `keep` and in `--dry-run`. Cross-platform safe (`fs.chmod` on Windows is a documented harmless no-op).
+
+```yaml
+# Consumer config.yaml
+overlays:
+  rules:
+    - pattern: ".husky/pre-commit"
+      executable: true
+    - pattern: ".claude/hooks/*.sh"
+      executable: true
+```
+
+#### `requires: { bash: ... }` — guard on a dependency check
+
+Skip the overlay entirely (no remap, no collision check, no write) when a bash command exits non-zero, times out, or fails to spawn. cwd = `projectRoot`, env includes `AI_SYNC_PROJECT_ROOT`. Default timeout 5000ms. A skip is by design and does NOT trip `--strict`.
+
+```yaml
+overlays:
+  rules:
+    # Only deploy the husky hook when husky is installed
+    - pattern: ".husky/pre-commit"
+      executable: true
+      requires:
+        bash: "command -v husky >/dev/null 2>&1"
+        timeout: 2000
+```
+
+In `--dry-run`, `requires:` still executes (so the predicted file list reflects the real skip behavior); only `chmod` and writes are deferred.
+
+#### `remap_to: <literal-path>` — rename the destination
+
+Rewrite the deploy destination to a literal project-relative path. Useful when you want to keep a loader-shipped file but at a non-default location.
+
+```yaml
+overlays:
+  rules:
+    - pattern: ".husky/pre-commit"
+      remap_to: ".husky/pre-commit-flutter"
+      executable: true
+```
+
+Validation rules (enforced at config-load):
+
+- `pattern` must also be literal when `remap_to` is set — no `*?[` characters in either field.
+- Globs in `remap_to` itself are rejected.
+- `..` segments that escape the project root are rejected.
+- Absolute paths and empty strings are rejected.
+
+Symmetric: `remap_to` works on consumer overlays (`.ai-sync/overlays/`) too, not just loader-shipped ones.
+
+#### `source_match: <glob>` — scope a rule to one specific loader
+
+Match a glob against the overlay's `sourceId` (the loader directory it came from). Lets a single rule apply to one specific loader without affecting others that ship the same `relativePath`.
+
+```yaml
+overlays:
+  rules:
+    - pattern: ".husky/pre-commit"
+      source_match: "**/ai-sync-flutter/**"
+      remap_to: ".husky/pre-commit-flutter"
+```
+
+Without `source_match`, an overlay rule applies to every overlay whose `relativePath` matches `pattern`. With `source_match`, the rule does NOT match consumer overlays in `.ai-sync/overlays/` (which carry no `sourceId`).
+
+### Two-loader walkthrough: scoped collision resolution
+
+The motivating case for `source_match` is **two loaders shipping the same file**, where the consumer wants to keep both.
+
+**Setup.** Two loaders both ship `.husky/pre-commit`:
+
+```
+ai-sync-packages/
+├── ai-sync-defaults/
+│   └── overlays/.husky/pre-commit       # generic husky hook
+└── ai-sync-flutter/
+    └── overlays/.husky/pre-commit       # Flutter-specific extra steps
+```
+
+**Default behavior.** Without overlay rules, `ai-sync build` fails:
+
+```
+Overlay error: Collision: ".husky/pre-commit" deployed by:
+  - ai-sync-defaults (.../ai-sync-packages/ai-sync-defaults/overlays/.husky/pre-commit)
+  - ai-sync-flutter  (.../ai-sync-packages/ai-sync-flutter/overlays/.husky/pre-commit)
+
+Use `remap_to` (with `source_match` to scope) to send one of them
+elsewhere. ai-sync does not silently pick a winner.
+```
+
+**Resolution.** The consumer scopes a remap to `ai-sync-flutter`'s overlay only, leaving `ai-sync-defaults` at the default destination:
+
+```yaml
+# Consumer config.yaml
+loaders:
+  - type: local
+    source: ai-sync-packages/ai-sync-defaults
+  - type: local
+    source: ai-sync-packages/ai-sync-flutter
+
+overlays:
+  rules:
+    # Loader A (ai-sync-defaults) implicitly keeps `.husky/pre-commit` —
+    # no rule needed (the default strategy `copy` applies).
+    #
+    # Loader B (ai-sync-flutter): remap to a sibling path, scoped via
+    # source_match so this rule does NOT also match loader A.
+    - pattern: ".husky/pre-commit"
+      source_match: "**/ai-sync-flutter/**"
+      remap_to: ".husky/pre-commit-flutter"
+      executable: true
+```
+
+After `ai-sync build`:
+
+```
+.husky/pre-commit            # from ai-sync-defaults (executable bit per its own rule)
+.husky/pre-commit-flutter    # from ai-sync-flutter (executable: true above)
+```
+
+If you want the Flutter overlay to win at the default location instead, swap which loader you remap. If you want both at sibling paths and neither at the default name, write two rules — one per `source_match`. See the worked variant in [Collision and Overwrite Guidance](#overlay-destination-collisions-loader-vs-loader) above.
+
+### Project-vs-loader precedence
+
+A project overlay (`.ai-sync/overlays/.husky/pre-commit`) at the same destination as a loader overlay is **not** a collision — the project overlay wins, and the loader overlay is silently dropped (debug-logged). This is the intended override pattern: consumers shadow loader files by placing their own at the same path.
+
+If you want a loud signal when a loader adds a new overlay you weren't expecting (e.g. for compliance reasons), use `source_match` + `remap_to` to send the loader overlay somewhere explicit, instead of relying on the silent project win.
+
+### The husky pattern as canonical reference
+
+ai-sync itself uses this exact pattern for its own pre-commit hook:
+
+- `ai-sync-packages/ai-sync-defaults/overlays/.husky/pre-commit` — the source of truth (POSIX `sh`).
+- The `ai-sync` repo's own `config.yaml` carries an overlay rule for the husky path with `executable: true` so the deployed file is mode `100755`.
+- The same pattern works for `.claude/hooks/*.sh` and any other script you want runnable.
+
+When in doubt, mirror that recipe.
 
 ## Further Reading
 
