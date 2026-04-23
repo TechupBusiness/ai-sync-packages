@@ -527,11 +527,11 @@ You can also remap both side-by-side if neither loader's "default" location shou
 overlays:
   rules:
     - pattern: ".husky/pre-commit"
-      source_match: "**/ai-sync-defaults/**"
+      source_match: "*ai-sync-defaults*"
       remap_to: ".husky/pre-commit-defaults"
       executable: true
     - pattern: ".husky/pre-commit"
-      source_match: "**/my-flutter-pack/**"
+      source_match: "*my-flutter-pack*"
       remap_to: ".husky/pre-commit-flutter"
       executable: true
 ```
@@ -1127,7 +1127,7 @@ overlays:
 
 #### `requires: { bash: ... }` — guard on a dependency check
 
-Skip the overlay entirely (no remap, no collision check, no write) when a bash command exits non-zero, times out, or fails to spawn. cwd = `projectRoot`, env includes `AI_SYNC_PROJECT_ROOT`. Default timeout 5000ms. A skip is by design and does NOT trip `--strict`.
+Skip the overlay entirely (no remap, no collision check, no write) when a bash command exits non-zero, times out, or fails to spawn. cwd = `projectRoot`, env includes `AI_SYNC_PROJECT_ROOT`. Default timeout 5000ms. Skips surface as warnings in the build summary; `ai-sync build` has no `--strict` flag, so a skip never fails the build (the per-modification `strict: true` flag elsewhere in the system is unrelated).
 
 ```yaml
 overlays:
@@ -1158,7 +1158,7 @@ Validation rules (enforced at config-load):
 
 - `pattern` must also be literal when `remap_to` is set — no `*?[` characters in either field.
 - Globs in `remap_to` itself are rejected.
-- `..` segments that escape the project root are rejected.
+- Any `..` segment is rejected (the validator splits on `/` and rejects if any segment equals `..` — not just paths that escape the root).
 - Absolute paths and empty strings are rejected.
 
 Symmetric: `remap_to` works on consumer overlays (`.ai-sync/overlays/`) too, not just loader-shipped ones.
@@ -1171,11 +1171,17 @@ Match a glob against the overlay's `sourceId` (the loader directory it came from
 overlays:
   rules:
     - pattern: ".husky/pre-commit"
-      source_match: "**/ai-sync-flutter/**"
+      source_match: "*ai-sync-flutter*"
       remap_to: ".husky/pre-commit-flutter"
 ```
 
 Without `source_match`, an overlay rule applies to every overlay whose `relativePath` matches `pattern`. With `source_match`, the rule does NOT match consumer overlays in `.ai-sync/overlays/` (which carry no `sourceId`).
+
+**Glob semantics for `source_match`** (different from `pattern`'s minimatch — `sourceId` is a free-form identifier, not a path):
+
+- Anchored `^...$` — a plain string like `ai-sync-flutter` only matches a `sourceId` whose entire value equals `ai-sync-flutter`. Wrap with wildcards (`*ai-sync-flutter*`) for substring matching.
+- `*` matches any chars **including `/`**; `?` matches one char including `/`; `[abc]` is a character class. Everything else is literal-escaped.
+- No braces, extglobs, or other minimatch sugar.
 
 ### Two-loader walkthrough: scoped collision resolution
 
@@ -1220,7 +1226,7 @@ overlays:
     # Loader B (ai-sync-flutter): remap to a sibling path, scoped via
     # source_match so this rule does NOT also match loader A.
     - pattern: ".husky/pre-commit"
-      source_match: "**/ai-sync-flutter/**"
+      source_match: "*ai-sync-flutter*"
       remap_to: ".husky/pre-commit-flutter"
       executable: true
 ```
