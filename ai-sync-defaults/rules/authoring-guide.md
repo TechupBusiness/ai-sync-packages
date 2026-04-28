@@ -1163,25 +1163,26 @@ Validation rules (enforced at config-load):
 
 Symmetric: `remap_to` works on consumer overlays (`.ai-sync/overlays/`) too, not just loader-shipped ones.
 
-#### `source_match: <glob>` — scope a rule to one specific loader
+#### `source_match: <substring or glob>` — scope a rule to one specific loader
 
-Match a glob against the overlay's `sourceId` (the loader directory it came from). Lets a single rule apply to one specific loader without affecting others that ship the same `relativePath`.
+Match a substring or glob against the overlay's `sourceId` (the loader directory it came from). Lets a single rule apply to one specific loader without affecting others that ship the same `relativePath`.
 
 ```yaml
 overlays:
   rules:
+    # Plain string → substring match against sourceId
     - pattern: ".husky/pre-commit"
-      source_match: "*ai-sync-flutter*"
+      source_match: "ai-sync-flutter"
       remap_to: ".husky/pre-commit-flutter"
 ```
 
 Without `source_match`, an overlay rule applies to every overlay whose `relativePath` matches `pattern`. With `source_match`, the rule does NOT match consumer overlays in `.ai-sync/overlays/` (which carry no `sourceId`).
 
-**Glob semantics for `source_match`** (different from `pattern`'s minimatch — `sourceId` is a free-form identifier, not a path):
+**Match semantics for `source_match`** (different from `pattern`'s minimatch — `sourceId` is a free-form identifier, not a structured path):
 
-- Anchored `^...$` — a plain string like `ai-sync-flutter` only matches a `sourceId` whose entire value equals `ai-sync-flutter`. Wrap with wildcards (`*ai-sync-flutter*`) for substring matching.
-- `*` matches any chars **including `/`**; `?` matches one char including `/`; `[abc]` is a character class. Everything else is literal-escaped.
-- No braces, extglobs, or other minimatch sugar.
+- **No glob characters (`*`, `?`, `[`)** → plain **substring** match. `source_match: "ai-sync-flutter"` matches any `sourceId` that *contains* `"ai-sync-flutter"`. Dots, slashes, and other punctuation are matched literally.
+- **Glob characters present** → anchored glob. `*` matches any chars (including `/`); `?` matches one char (including `/`); `[abc]` is a character class. So `source_match: "ai-sync-*"` matches a sourceId starting with `ai-sync-`, and `source_match: "*ai-sync-flutter*"` is equivalent to the plain-string substring form above.
+- No braces, extglobs, or other minimatch sugar; malformed globs safely fall through to "no match."
 
 ### Two-loader walkthrough: scoped collision resolution
 
